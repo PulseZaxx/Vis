@@ -1,0 +1,366 @@
+
+--// UNIQUE LUCK UI
+--// Loading Screen + Draggable UI + Working Toggle
+--// Place in StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+--// SETTINGS
+local ORANGE = Color3.fromRGB(255, 135, 35)
+local BLACK = Color3.fromRGB(5, 5, 5)
+local WHITE = Color3.fromRGB(245, 245, 245)
+local GRAY = Color3.fromRGB(48, 49, 54)
+local GREEN = Color3.fromRGB(25, 205, 100)
+
+local enabled = false
+
+--// REMOVE OLD UI
+local old = playerGui:FindFirstChild("UniqueLuckUI")
+if old then
+    old:Destroy()
+end
+
+--// MAIN GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "UniqueLuckUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.DisplayOrder = 999
+gui.Parent = playerGui
+
+--// HELPER FUNCTIONS
+local function corner(object, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius)
+    c.Parent = object
+    return c
+end
+
+local function stroke(object, color, thickness)
+    local s = Instance.new("UIStroke")
+    s.Color = color
+    s.Thickness = thickness
+    s.Parent = object
+    return s
+end
+
+local function tween(object, duration, properties)
+    local info = TweenInfo.new(
+        duration,
+        Enum.EasingStyle.Quint,
+        Enum.EasingDirection.Out
+    )
+    local t = TweenService:Create(object, info, properties)
+    t:Play()
+    return t
+end
+
+--// LOADING SCREEN
+local loading = Instance.new("Frame")
+loading.Name = "LoadingScreen"
+loading.Size = UDim2.fromScale(1, 1)
+loading.BackgroundColor3 = BLACK
+loading.BackgroundTransparency = 0.05
+loading.BorderSizePixel = 0
+loading.Parent = gui
+
+local loadingScale = Instance.new("UIScale")
+loadingScale.Scale = 0.92
+loadingScale.Parent = loading
+
+local loadingPanel = Instance.new("Frame")
+loadingPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+loadingPanel.Position = UDim2.fromScale(0.5, 0.5)
+loadingPanel.Size = UDim2.fromOffset(280, 155)
+loadingPanel.BackgroundColor3 = BLACK
+loadingPanel.BorderSizePixel = 0
+loadingPanel.Parent = loading
+
+corner(loadingPanel, 20)
+local loadingStroke = stroke(loadingPanel, ORANGE, 2)
+
+local loadingTitle = Instance.new("TextLabel")
+loadingTitle.Position = UDim2.new(0, 10, 0, 18)
+loadingTitle.Size = UDim2.new(1, -20, 0, 30)
+loadingTitle.BackgroundTransparency = 1
+loadingTitle.Text = "Anime Adventure Luck Script!"
+loadingTitle.TextColor3 = ORANGE
+loadingTitle.TextSize = 25
+loadingTitle.Font = Enum.Font.GothamBold
+loadingTitle.Parent = loadingPanel
+
+local loadingText = Instance.new("TextLabel")
+loadingText.Position = UDim2.new(0, 10, 0, 53)
+loadingText.Size = UDim2.new(1, -20, 0, 25)
+loadingText.BackgroundTransparency = 1
+loadingText.Text = "Script is loading"
+loadingText.TextColor3 = WHITE
+loadingText.TextSize = 15
+loadingText.Font = Enum.Font.Gotham
+loadingText.Parent = loadingPanel
+
+-- Animated spinner
+local spinner = Instance.new("ImageLabel")
+spinner.Name = "Spinner"
+spinner.AnchorPoint = Vector2.new(0.5, 0.5)
+spinner.Position = UDim2.new(0.5, 0, 0, 103)
+spinner.Size = UDim2.fromOffset(27, 27)
+spinner.BackgroundTransparency = 1
+spinner.Image = "rbxasset://textures/LoadingCircle.png"
+spinner.ImageColor3 = ORANGE
+spinner.Parent = loadingPanel
+
+-- Progress bar
+local barBackground = Instance.new("Frame")
+barBackground.Position = UDim2.new(0, 25, 1, -20)
+barBackground.Size = UDim2.new(1, -50, 0, 5)
+barBackground.BackgroundColor3 = GRAY
+barBackground.BorderSizePixel = 0
+barBackground.ClipsDescendants = true
+barBackground.Parent = loadingPanel
+corner(barBackground, 5)
+
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(0, 0, 1, 0)
+bar.BackgroundColor3 = ORANGE
+bar.BorderSizePixel = 0
+bar.Parent = barBackground
+corner(bar, 5)
+
+-- Loading animations
+tween(loadingScale, 0.6, {Scale = 1})
+
+local spinConnection = true
+task.spawn(function()
+    while spinConnection and spinner.Parent do
+        spinner.Rotation = spinner.Rotation + 8
+        task.wait(0.02)
+    end
+end)
+
+task.spawn(function()
+    local dots = {"", ".", "..", "..."}
+    local index = 1
+
+    while loading.Parent do
+        loadingText.Text = "Script is loading" .. dots[index]
+        index = index % #dots + 1
+        task.wait(0.3)
+    end
+end)
+
+tween(bar, 1.8, {Size = UDim2.new(1, 0, 1, 0)})
+
+-- Short intro animation
+task.wait(2)
+
+spinConnection = false
+loadingText.Text = "Loading complete!"
+task.wait(0.35)
+
+tween(loadingPanel, 0.3, {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0.5, 0, 0.46, 0)
+})
+tween(loadingTitle, 0.25, {TextTransparency = 1})
+tween(loadingText, 0.25, {TextTransparency = 1})
+tween(spinner, 0.25, {ImageTransparency = 1})
+tween(barBackground, 0.25, {BackgroundTransparency = 1})
+tween(bar, 0.25, {BackgroundTransparency = 1})
+tween(loadingStroke, 0.25, {Transparency = 1})
+
+task.wait(0.35)
+loading:Destroy()
+
+--// MAIN UI
+local panel = Instance.new("Frame")
+panel.Name = "MainPanel"
+panel.AnchorPoint = Vector2.new(0.5, 0.5)
+panel.Size = UDim2.fromOffset(280, 92)
+panel.Position = UDim2.fromScale(0.5, 0.5)
+panel.BackgroundColor3 = BLACK
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Visible = false
+panel.Parent = gui
+
+corner(panel, 23)
+local panelStroke = stroke(panel, ORANGE, 3)
+
+-- Small entrance effect
+panel.Position = UDim2.new(0.5, 0, 0.53, 0)
+
+-- Header
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Position = UDim2.fromOffset(16, 10)
+title.Size = UDim2.fromOffset(165, 30)
+title.BackgroundTransparency = 1
+title.Text = "UNIQUE"
+title.TextColor3 = Color3.fromRGB(91, 112, 139)
+title.TextSize = 22
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = panel
+
+-- Green status dot
+local statusDot = Instance.new("Frame")
+statusDot.Position = UDim2.fromOffset(17, 19)
+statusDot.Size = UDim2.fromOffset(0, 0)
+statusDot.BackgroundColor3 = GREEN
+statusDot.BorderSizePixel = 0
+statusDot.Parent = panel
+corner(statusDot, 20)
+
+-- Description
+local description = Instance.new("TextLabel")
+description.Name = "Description"
+description.Position = UDim2.fromOffset(17, 53)
+description.Size = UDim2.new(1, -34, 0, 25)
+description.BackgroundTransparency = 1
+description.Text = "Unique Luck Inactive ✦"
+description.TextColor3 = Color3.fromRGB(195, 195, 200)
+description.TextSize = 15
+description.Font = Enum.Font.Gotham
+description.TextXAlignment = Enum.TextXAlignment.Left
+description.Parent = panel
+
+-- Toggle button
+local toggle = Instance.new("TextButton")
+toggle.Name = "ToggleButton"
+toggle.Position = UDim2.new(1, -82, 0, 19)
+toggle.Size = UDim2.fromOffset(66, 36)
+toggle.BackgroundColor3 = GRAY
+toggle.Text = ""
+toggle.AutoButtonColor = false
+toggle.Parent = panel
+
+corner(toggle, 25)
+
+-- Toggle knob
+local knob = Instance.new("Frame")
+knob.Name = "Knob"
+knob.Position = UDim2.fromOffset(4, 4)
+knob.Size = UDim2.fromOffset(28, 28)
+knob.BackgroundColor3 = WHITE
+knob.BorderSizePixel = 0
+knob.Parent = toggle
+
+corner(knob, 20)
+
+-- Top banner
+local banner = Instance.new("TextLabel")
+banner.Name = "StatusBanner"
+banner.AnchorPoint = Vector2.new(0.5, 0)
+banner.Position = UDim2.new(0.5, 0, 0, 12)
+banner.Size = UDim2.new(1, -20, 0, 36)
+banner.BackgroundTransparency = 1
+banner.Text = "★  Unique Luck Inactive  ★"
+banner.TextColor3 = ORANGE
+banner.TextSize = 16
+banner.Font = Enum.Font.GothamBold
+banner.Parent = gui
+
+--// TOGGLE FUNCTION
+local function updateToggle()
+    if enabled then
+        tween(knob, 0.2, {
+            Position = UDim2.new(1, -32, 0, 4)
+        })
+        tween(toggle, 0.2, {
+            BackgroundColor3 = Color3.fromRGB(62, 105, 72)
+        })
+
+        description.Text = "Unique Luck Active ✦"
+        banner.Text = "★  Unique Luck Active  ★"
+    else
+        tween(knob, 0.2, {
+            Position = UDim2.fromOffset(4, 4)
+        })
+        tween(toggle, 0.2, {
+            BackgroundColor3 = GRAY
+        })
+
+        description.Text = "Unique Luck Inactive ✦"
+        banner.Text = "★  Unique Luck Inactive  ★"
+    end
+end
+
+toggle.Activated:Connect(function()
+    enabled = not enabled
+    updateToggle()
+end)
+
+--// DRAG FUNCTION: MOUSE + TOUCH
+local dragging = false
+local dragStart
+local startPosition
+local dragInput
+
+panel.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        -- Don't start dragging on the toggle
+        local p = input.Position
+        local absPos = toggle.AbsolutePosition
+        local absSize = toggle.AbsoluteSize
+
+        local onToggle =
+            p.X >= absPos.X and p.X <= absPos.X + absSize.X
+            and p.Y >= absPos.Y and p.Y <= absPos.Y + absSize.Y
+
+        if onToggle then
+            return
+        end
+
+        dragging = true
+        dragStart = input.Position
+        startPosition = panel.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+panel.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (
+        input == dragInput
+        or input.UserInputType == Enum.UserInputType.MouseMovement
+    ) then
+        local delta = input.Position - dragStart
+
+        panel.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end
+end)
+
+--// SHOW MAIN UI
+panel.Visible = true
+tween(panel, 0.45, {
+    Position = UDim2.fromScale(0.5, 0.5)
+})
+
+updateToggle()
+
+print("Unique Luck UI loaded successfully!")
