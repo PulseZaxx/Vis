@@ -1,0 +1,377 @@
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService  = game:GetService("UserInputService")
+
+local lp    = Players.LocalPlayer
+local lpgui = lp:WaitForChild("PlayerGui")
+
+local RS_Modules        = ReplicatedStorage:WaitForChild("Modules")
+local RS_ClientServices = ReplicatedStorage:WaitForChild("ClientServices")
+local Database          = ReplicatedStorage:WaitForChild("Database")
+
+local SyncDB           = require(Database:WaitForChild("Sync"))
+local ProfileData      = require(RS_Modules:WaitForChild("ProfileData"))
+local InventoryModule  = require(RS_Modules:WaitForChild("InventoryModule"))
+local ItemPopupService = require(RS_ClientServices:WaitForChild("ItemPopupService"))
+
+local ItemLookup = {}
+local ItemNames  = {}
+local ITEM_TYPES = { "Weapons", "Effects", "Perks", "Emotes", "Radios", "Pets" }
+
+for _, cat in ipairs(ITEM_TYPES) do
+    local bucket = SyncDB[cat]
+    if bucket then
+        for id, data in pairs(bucket) do
+            local name  = data.ItemName or data.Name or id
+            local entry = {
+                id      = id,
+                type    = cat,
+                display = name .. " [" .. cat .. "]",
+            }
+            ItemLookup[string.lower(id)]   = entry
+            ItemLookup[string.lower(name)] = entry
+            table.insert(ItemNames, id)
+        end
+    end
+end
+table.sort(ItemNames)
+
+local createdCodes = {}
+
+local function injectAndPopup(itemID, itemType, amount)
+    local owned = ProfileData[itemType] and ProfileData[itemType].Owned
+    if owned then
+        local isKeyed = (itemType == "Weapons" or itemType == "Pets")
+        if isKeyed then
+            owned[itemID] = (tonumber(owned[itemID]) or 0) + amount
+        else
+            local found = false
+            for _, v in ipairs(owned) do
+                if v == itemID then found = true; break end
+            end
+            if not found then table.insert(owned, itemID) end
+        end
+    end
+
+    pcall(function()
+        if InventoryModule and InventoryModule.MyInventory then
+            local myInv = InventoryModule.MyInventory
+            if myInv.Data and myInv.Sort then
+                if not myInv.Data[itemType] then
+                    myInv.Data[itemType] = {}
+                    myInv.Sort[itemType] = {}
+                end
+                local tabKey = "Current"
+                if not myInv.Data[itemType][tabKey] then
+                    myInv.Data[itemType][tabKey] = {}
+                    myInv.Sort[itemType][tabKey] = {}
+                end
+                if not myInv.Data[itemType][tabKey][itemID] then
+                    local rawData = SyncDB[itemType] and SyncDB[itemType][itemID]
+                    local entry   = {}
+                    if rawData then
+                        for k, v in pairs(rawData) do entry[k] = v end
+                    end
+                    entry.Name        = rawData and (rawData.ItemName or rawData.Name) or itemID
+                    entry.Amount      = amount
+                    entry.DataID      = itemID
+                    entry.DataType    = itemType
+                    entry.Rarity      = entry.Rarity or "Common"
+                    entry.Frame       = nil
+                    entry.LayoutOrder = 0
+                    myInv.Data[itemType][tabKey][itemID] = entry
+                    table.insert(myInv.Sort[itemType][tabKey], itemID)
+                    local InvMain = InventoryModule.GUI
+                        and InventoryModule.GUI.MyInventory
+                        and InventoryModule.GUI.MyInventory.Main
+                    if InvMain then
+                        InventoryModule.SortTab(myInv, itemType, tabKey)
+                        InventoryModule.GenerateNewInventoryFrames(myInv, InvMain)
+                        InventoryModule.ConnectEquipButtons()
+                    end
+                end
+            end
+        end
+    end)
+
+    pcall(function()
+        ItemPopupService.ItemReceived:Fire(itemID, itemType, amount)
+    end)
+end
+
+local function createCode(codeStr, itemID, itemType, amount)
+    codeStr = string.upper(string.gsub(codeStr, "%s+", ""))
+    if codeStr == "" or #codeStr < 3 then
+        return false, "Code too short (min 3 chars)"
+    end
+    createdCodes[codeStr] = { itemID = itemID, itemType = itemType, amount = amount }
+    if not SyncDB.Codes then SyncDB.Codes = {} end
+    SyncDB.Codes[codeStr] = { Code = codeStr, Active = true, Type = "Normal", Uses = 999 }
+    return true, "Code created!"
+end
+
+local function getCodeFrame()
+    local ok, result = pcall(function()
+        local pg  = lp:WaitForChild("PlayerGui", 5)
+        local mg  = pg:WaitForChild("MainGUI", 5)
+        local lb  = mg:WaitForChild("Lobby", 5)
+        local sc  = lb:WaitForChild("Screens", 5)
+        local inv = sc:WaitForChild("Inventory", 5)
+        local nav = inv:WaitForChild("Nav", 5)
+        local mn  = nav:WaitForChild("Main", 5)
+        return mn:WaitForChild("Codes", 5)
+    end)
+    return ok and result or nil
+end
+
+local CodeFrame = getCodeFrame()
+if CodeFrame then
+    local CodeBox   = CodeFrame:FindFirstChild("CodeBox")
+    local RedeemBtn = CodeFrame:FindFirstChild("Redeem")
+    if CodeBox and RedeemBtn then
+        local function rewire(inst)
+            local clone = inst:Clone()
+            clone.Parent = inst.Parent
+            inst:Destroy()
+            return clone
+        end
+        CodeBox   = rewire(CodeBox)
+        RedeemBtn = rewire(RedeemBtn)
+        CodeBox   = CodeFrame:WaitForChild("CodeBox")
+        RedeemBtn = CodeFrame:WaitForChild("Redeem")
+
+        CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
+            local code = string.upper(string.gsub(CodeBox.Text, "%s+", ""))
+            RedeemBtn.Style = createdCodes[code]
+                and Enum.ButtonStyle.RobloxRoundDefaultButton
+                or  Enum.ButtonStyle.RobloxRoundButton
+        end)
+
+        RedeemBtn.MouseButton1Click:Connect(function()
+            local code = string.upper(string.gsub(CodeBox.Text, "%s+", ""))
+            if createdCodes[code] then
+                local d = createdCodes[code]
+                injectAndPopup(d.itemID, d.itemType, d.amount)
+                CodeBox.Text       = "✅ Redeemed! (+" .. d.amount .. " " .. d.itemID .. ")"
+                RedeemBtn.Style    = Enum.ButtonStyle.RobloxRoundButton
+                createdCodes[code] = nil
+                if SyncDB.Codes then SyncDB.Codes[code] = nil end
+                return
+            end
+            local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+            local extras  = remotes:WaitForChild("Extras", 5)
+            local ok, responseText, rewardList = pcall(function()
+                return extras.RedeemCode:InvokeServer(code, "Normal")
+            end)
+            if ok and rewardList and type(rewardList) == "table" then
+                CodeBox.Text = tostring(responseText or "✅ Redeemed!")
+                for _, reward in ipairs(rewardList) do
+                    injectAndPopup(
+                        reward.ID   or reward[1],
+                        reward.Type or reward[2] or "Weapons",
+                        reward.Amount or 1
+                    )
+                end
+            else
+                CodeBox.Text = "❌ Invalid code"
+            end
+        end)
+    end
+end
+
+local WindUI = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
+))()
+
+local function notify(title, msg, dur)
+    WindUI:Notify({ Title = title, Content = msg, Duration = dur or 3 })
+end
+
+local Window = WindUI:CreateWindow({
+    Title       = "Vega Scripts",
+    Icon        = "zap",
+    Author      = "by neverwin.lua",
+    Theme       = "Dark",
+    Folder      = "VegaScripts",
+    ToggleKey   = Enum.KeyCode.RightControl,
+    Transparent = true,
+    Resizable   = false,
+    Size        = UDim2.fromOffset(520, 460),
+})
+
+local ForgeTab = Window:Tab({
+    Title     = "Main",
+    Icon      = "zap",
+    IconColor = Color3.fromRGB(0, 180, 255),
+    IconShape = "Squircle",
+})
+
+local SetTab = Window:Tab({
+    Title     = "Settings",
+    Icon      = "settings",
+    IconColor = Color3.fromRGB(255, 180, 30),
+    IconShape = "Squircle",
+})
+
+local CredTab = Window:Tab({
+    Title     = "Credits",
+    Icon      = "heart",
+    IconColor = Color3.fromRGB(255, 80, 120),
+    IconShape = "Squircle",
+})
+
+local ForgeSection = ForgeTab:Section({ Title = "Create Code" })
+
+local codeNameVal  = ""
+local itemInputVal = ""
+local amountVal    = "1"
+
+ForgeSection:Input({
+    Title       = "Code Name",
+    Desc        = "Min 3 chars — auto-uppercased",
+    Placeholder = "e.g. VEGA2025",
+    Flag        = "CodeName",
+    Callback    = function(val) codeNameVal = val end,
+})
+
+ForgeSection:Input({
+    Title       = "Reward Item",
+    Desc        = "Type item ID or display name (e.g. Sword_001 or Excalibur)",
+    Placeholder = "Item ID or Name",
+    Flag        = "RewardItem",
+    Callback    = function(val) itemInputVal = val end,
+})
+
+ForgeSection:Input({
+    Title       = "Amount",
+    Desc        = "Number of items to grant (1–999)",
+    Placeholder = "1",
+    Flag        = "ItemAmount",
+    Callback    = function(val) amountVal = val end,
+})
+
+ForgeSection:Paragraph({
+    Title = "How to use",
+    Desc  = "Fill Code Name + Item + Amount, then hit Create.\n"
+          .. "The code is auto-copied to clipboard after creation.\n"
+          .. "Redeem it in the in-game Codes screen.",
+})
+
+ForgeSection:Button({
+    Title     = "⚡ Create Code",
+    Desc      = "Registers the code and patches SyncDB client-side",
+    Icon      = "zap",
+    IconColor = Color3.fromRGB(0, 180, 255),
+    Callback  = function()
+        local codeStr  = string.upper(string.gsub(codeNameVal, "%s+", ""))
+        local rawItem  = string.gsub(itemInputVal, "%s+", "")
+        local amount   = math.clamp(math.floor(tonumber(amountVal) or 1), 1, 999)
+
+        if codeStr == "" or #codeStr < 3 then
+            notify("Vega Scripts", "✗ Code name too short (min 3 chars).", 3)
+            return
+        end
+
+        local itemData = nil
+        local itemType = nil
+
+        for _, cat in ipairs(ITEM_TYPES) do
+            local bucket = SyncDB[cat]
+            if bucket then
+                if bucket[rawItem] then
+                    itemData = bucket[rawItem]
+                    itemType = cat
+                    break
+                end
+                for id, data in pairs(bucket) do
+                    local name = data.ItemName or data.Name or id
+                    if string.lower(id) == string.lower(rawItem) or string.lower(name) == string.lower(rawItem) then
+                        rawItem  = id
+                        itemData = data
+                        itemType = cat
+                        break
+                    end
+                end
+            end
+            if itemData then break end
+        end
+
+        if not itemData then
+            notify("Vega Scripts",
+                "✗ Item \"" .. rawItem .. "\" not found in SyncDB.\n"
+             .. "Try typing the exact ID or display name.",
+                4)
+            return
+        end
+
+        local ok, msg = createCode(codeStr, rawItem, itemType, amount)
+        if ok then
+            pcall(function() setclipboard(codeStr) end)
+            notify(
+                "✅ Code Created",
+                codeStr .. " → " .. amount .. "x " .. rawItem
+                    .. " [" .. itemType .. "]\nCopied to clipboard.",
+                5
+            )
+        else
+            notify("Vega Scripts", "✗ " .. msg, 3)
+        end
+    end,
+})
+
+ForgeSection:Button({
+    Title     = "📋 Copy Code",
+    Desc      = "Copies the Code Name field to clipboard",
+    Icon      = "clipboard",
+    IconColor = Color3.fromRGB(120, 200, 120),
+    Callback  = function()
+        local codeStr = string.upper(string.gsub(codeNameVal, "%s+", ""))
+        if codeStr ~= "" then
+            pcall(function() setclipboard(codeStr) end)
+            notify("Copied", codeStr .. " is on your clipboard.", 2)
+        else
+            notify("Nothing to copy", "Fill in the Code Name field first.", 2)
+        end
+    end,
+})
+
+local SetSection = SetTab:Section({ Title = "UI Preferences" })
+
+SetSection:Toggle({
+    Title    = "Auto-copy on Create",
+    Desc     = "Copies the code to clipboard after creation",
+    Value    = true,
+    Flag     = "AutoCopy",
+    Callback = function(state)
+        notify("Setting Updated", "Auto-copy: " .. (state and "ON" or "OFF"), 2)
+    end,
+})
+
+local themeVal = "Dark"
+SetSection:Input({
+    Title       = "Theme",
+    Desc        = "Dark / Light / Rose / Plant / Indigo / Sky / Violet / Amber",
+    Placeholder = "Dark",
+    Flag        = "UITheme",
+    Callback    = function(val)
+        themeVal = val
+        pcall(function() WindUI:SetTheme(val) end)
+    end,
+})
+
+SetSection:Keybind({
+    Title    = "Toggle Key",
+    Desc     = "Key that shows / hides the Vega window",
+    Default  = Enum.KeyCode.RightControl,
+    Flag     = "ToggleKeybind",
+    Callback = function(key)
+        Window:SetToggleKey(key)
+    end,
+})
+
+local CredSection = CredTab:Section({ Title = "About Vega Scripts" })
+
+CredSection:Paragraph({
+    Title = "MM2 Scripts",
+    Desc  = "Best Best Best omg made by neverwin.lua\ndm for business inquiries",
+})
